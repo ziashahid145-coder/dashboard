@@ -1,0 +1,8 @@
+{
+  "name": "SkyPeak Client Dashboard",
+  "description": "A comprehensive, high-fidelity SEO and hosting management dashboard for clients to track domain health, search performance, and maintenance payments.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
