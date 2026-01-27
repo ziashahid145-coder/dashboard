@@ -16,6 +16,7 @@ import {
   KeywordRanking
 } from "../types";
 const API_BASE = import.meta.env.VITE_API_BASE as string;
+const PUBLIC_BASE = import.meta.env.VITE_PUBLIC_BASE;
 const AdminPanel: React.FC = () => {
   const [clients, setClients] = useState<ClientData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -447,21 +448,25 @@ const addInvoice = async () => {
   }
 
   const amount =
-    Number(form.monthlyPrice) + Number(form.maintenancePrice);
+    Number(form.monthlyPrice || 0) +
+    Number(form.maintenancePrice || 0);
+
+  const status = form.invoiceStatus || "Pending"; // ✅ dynamic
 
   // 1️⃣ Optimistic UI
   const tempInvoice = {
     id: `temp-${Date.now()}`,
+    invoice_no: "Generating…",
     amount,
-    status: "Pending",
+    status,            // ✅ dynamic
+    pdf_path: null,
   };
 
   setForm(prev => ({
     ...prev,
-    invoices: [tempInvoice, ...prev.invoices],
+    invoices: [tempInvoice, ...(prev.invoices || [])],
   }));
 
-  // 2️⃣ API call (PHP)
   try {
     const res = await fetch(
       `${API_BASE}/admin/invoices.php`,
@@ -469,12 +474,12 @@ const addInvoice = async () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json"
+          Accept: "application/json",
         },
         body: JSON.stringify({
           client_id: editingId,
           amount,
-          status: "Pending"
+          status,        // ✅ dynamic
         }),
       }
     );
@@ -482,10 +487,10 @@ const addInvoice = async () => {
     const data = await res.json();
 
     if (!res.ok || !data.success || !data.id) {
-      throw new Error("Invoice creation failed");
+      throw new Error(data?.error || "Invoice creation failed");
     }
 
-    // 3️⃣ Replace temp with DB ID
+    // 2️⃣ Replace temp invoice with real one
     setForm(prev => ({
       ...prev,
       invoices: prev.invoices.map(inv =>
@@ -493,15 +498,18 @@ const addInvoice = async () => {
           ? {
               ...inv,
               id: data.id,
-              invoice_no: data.invoice_no
+              invoice_no: data.invoice_no,
+              pdf_path: data.pdf_path,
+              status,     // ✅ keep selected status
             }
           : inv
       ),
     }));
+
   } catch (err) {
     console.error("Add invoice failed:", err);
 
-    // 🔁 rollback UI
+    // rollback optimistic UI
     setForm(prev => ({
       ...prev,
       invoices: prev.invoices.filter(
@@ -578,11 +586,11 @@ const updateInvoiceStatus = async (id: number, status: string) => {
 
   try {
     const res = await fetch(
-      `${API_BASE}/admin/invoices.php?id=${id}`,
+      `${API_BASE}/admin/invoices.php/${id}`,
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ status }),
       }
     );
 
@@ -591,6 +599,86 @@ const updateInvoiceStatus = async (id: number, status: string) => {
   } catch {
     setForm(prev => ({ ...prev, invoices: snapshot }));
     alert("Failed to update invoice status");
+  }
+};
+const uploadInvoicePdf = async (id: number, file: File) => {
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("pdf", file);
+
+  try {
+    const res = await fetch(
+      `${API_BASE}/admin/invoices.php/upload/${id}`,
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error("Upload failed");
+    }
+
+    // ✅ Update state immediately
+    setForm(prev => ({
+      ...prev,
+      invoices: prev.invoices.map(inv =>
+        inv.id === id
+          ? { ...inv, pdf_path: data.pdf_path }
+          : inv
+      ),
+    }));
+
+  } catch (err) {
+    console.error("PDF upload failed", err);
+    alert("PDF upload failed");
+  }
+};
+const [uploadFile, setUploadFile] = useState<File | null>(null);
+const [uploadAmount, setUploadAmount] = useState<number | "">("");
+const uploadAndCreateInvoice = async () => {
+  if (!editingId || !uploadFile) {
+    alert("Client & PDF required");
+    if (!uploadAmount || uploadAmount <= 0) {
+  alert("Invoice amount required");
+  return;
+}
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("pdf", uploadFile);
+  formData.append("client_id", editingId);
+  formData.append("amount", String(uploadAmount)); // manual invoice
+  formData.append("status", form.invoiceStatus || "Pending");
+
+  try {
+    const res = await fetch(
+      `${API_BASE}/admin/invoices.php/upload-create`,
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    const data = await res.json();
+
+    if (!res.ok || !data.success || !data.invoice_no) {
+      throw new Error(data?.error || "Upload failed");
+    }
+
+    // ✅ ADD NEW INVOICE TO LIST (IMPORTANT)
+    setForm(prev => ({
+      ...prev,
+      invoices: [data, ...(prev.invoices || [])],
+    }));
+
+    setUploadFile(null);
+  } catch (err) {
+    console.error(err);
+    alert("Upload invoice failed");
   }
 };
 const addWebsitePayment = async () => {
@@ -1579,79 +1667,158 @@ const updateActivity = async (
 
     {/* ================= LEFT: SUBSCRIPTION & INVOICES ================= */}
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
-          <DollarSign className="w-5 h-5 text-emerald-500" />
-          Subscription & Invoices
-        </h4>
-
-        <button
-          type="button"
-          onClick={addInvoice}
-          className="text-[10px] font-black text-orange-500 uppercase tracking-widest hover:underline"
-        >
-          + New Invoice
-        </button>
-      </div>
-
-      {/* PRICES */}
-      <div className="grid grid-cols-2 gap-6">
-  <div className="space-y-2">
-    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-      SEO Retainer ($)
-    </label>
-    <input
-      type="number"
-      value={form.monthlyPrice ?? ""}
-      onChange={e =>
-        setForm({
-          ...form,
-          monthlyPrice: Number(e.target.value) || 0
-        })
-      }
-      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none"
-    />
+  {/* HEADER */}
+  <div className="flex justify-between items-center">
+    <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+      <DollarSign className="w-5 h-5 text-emerald-500" />
+      Subscription & Invoices
+    </h4>
+    
+    <button
+      type="button"
+      onClick={addInvoice}
+      className="text-[10px] font-black text-orange-500 uppercase tracking-widest hover:underline"
+    >
+      + New Invoice
+    </button>
   </div>
 
-  <div className="space-y-2">
-    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-      Maint. Fee ($)
-    </label>
-    <input
-      type="number"
-      value={form.maintenancePrice ?? ""}
-      onChange={e =>
-        setForm({
-          ...form,
-          maintenancePrice: Number(e.target.value) || 0
-        })
-      }
-      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none"
-    />
+  {/* PRICES */}
+  <div className="grid grid-cols-2 gap-6">
+    <div className="space-y-2">
+      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+        SEO Retainer ($)
+      </label>
+      <input
+        type="number"
+        value={form.monthlyPrice ?? ""}
+        onChange={e =>
+          setForm({
+            ...form,
+            monthlyPrice: Number(e.target.value) || 0,
+          })
+        }
+        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none"
+      />
+    </div>
+
+    <div className="space-y-2">
+      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+        Maint. Fee ($)
+      </label>
+      <input
+        type="number"
+        value={form.maintenancePrice ?? ""}
+        onChange={e =>
+          setForm({
+            ...form,
+            maintenancePrice: Number(e.target.value) || 0,
+          })
+        }
+        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none"
+      />
+    </div>
+  </div>
+ {/* INVOICE STATUS */}
+<div className="space-y-2">
+  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+    Invoice Status
+  </label>
+
+  <select
+    value={form.invoiceStatus ?? "Pending"}
+    onChange={e =>
+      setForm(prev => ({
+        ...prev,
+        invoiceStatus: e.target.value,
+      }))
+    }
+    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none"
+  >
+    <option value="Pending">Pending</option>
+    <option value="Paid">Paid</option>
+    <option value="Overdue">Overdue</option>
+    <option value="Cancelled">Cancelled</option>
+  </select>
+</div>
+
+  {/* INVOICE LIST */}
+  <div className="max-h-48 overflow-y-auto bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-2">
+    {form.invoices.length === 0 && (
+      <p className="text-xs text-slate-400 text-center">
+        No invoices yet
+      </p>
+    )}
+
+    {form.invoices.map(inv => (
+      <div
+        key={inv.id}
+        className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-sm"
+      >
+        {/* LEFT INFO */}
+        <span className="text-[10px] font-black">
+          {inv.invoice_no || "—"} • ${inv.amount}
+        </span>
+
+        {/* ACTIONS */}
+        <div className="flex items-center gap-3">
+          {inv.pdf_path && (
+  <a
+    href={`${PUBLIC_BASE}/${inv.pdf_path}`}
+    target="_blank"
+    rel="noreferrer"
+    className="text-[10px] font-black text-emerald-600 hover:underline"
+  >
+    View PDF
+  </a>
+)}
+          {/* DELETE */}
+          <button
+            type="button"
+            onClick={() => deleteInvoice(inv.id)}
+            className="text-slate-300 hover:text-red-500"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+    ))}
+ <div className="mt-6 p-4 border rounded-xl bg-slate-50 space-y-3">
+  <p className="text-xs font-black text-slate-600">
+    Upload Existing Invoice (PDF)
+  </p>
+{/* AMOUNT */}
+  <input
+    type="number"
+    placeholder="Invoice Amount ($)"
+    value={uploadAmount}
+    onChange={e => setUploadAmount(Number(e.target.value) || "")}
+    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs"
+  />
+  <input
+    type="file"
+    accept="application/pdf"
+    onChange={e => setUploadFile(e.target.files?.[0] || null)}
+    className="text-xs"
+  />
+
+  {uploadFile && (
+    <p className="text-[10px] text-emerald-600 font-bold">
+      Selected: {uploadFile.name}
+    </p>
+  )}
+
+  <button
+    type="button"
+    onClick={uploadAndCreateInvoice}
+    disabled={!uploadFile}
+    className="px-4 py-2 rounded-lg text-xs font-black text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+  >
+    Upload Invoice
+  </button>
+</div>
   </div>
 </div>
-      {/* INVOICE LIST */}
-      <div className="max-h-48 overflow-y-auto bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-2">
-        {form.invoices.map(inv => (
-          <div
-            key={inv.id}
-            className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 shadow-sm"
-          >
-            <span className="text-[10px] font-black">
-  {inv.invoice_no} • ${inv.amount}
-</span>
-
-            <button
-              type="button"
-              onClick={() => deleteInvoice(inv.id)}
-              className="text-slate-300 hover:text-red-500"
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
 
     {/* ================= RIGHT: MAINTENANCE LOGS ================= */}
     <div className="space-y-6">

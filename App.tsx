@@ -82,7 +82,7 @@ const Footer: React.FC = () => (
 
       <div className="pt-6 border-t border-slate-800 flex justify-between items-center">
         <p className="text-[10px] uppercase font-bold">
-          © 2025 SkyPeak Designs
+          © 2026 SkyPeak Designs
         </p>
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-emerald-500" />
@@ -205,6 +205,10 @@ const loadClients = async () => {
           { id: AppTab.MAINTENANCE, icon: Settings },
           { id: AppTab.HELP, icon: LifeBuoy },
         ];
+const getDashboardLabel = () => {
+  if (!user) return "";
+  return user.role === "ADMIN" ? "Admin Dashboard" : "Client Dashboard";
+};
 
   /* ================= LOGIN SCREEN ================= */
   if (!user) {
@@ -295,9 +299,26 @@ const loadClients = async () => {
       <header className="bg-[#0f172a] text-white">
         <div className="max-w-7xl mx-auto px-6 h-20 flex justify-between items-center">
           <img src={LOGO_URL} className="h-10" />
-          <button onClick={handleLogout}>
-            <LogOut />
-          </button>
+       <span className="text-lg font-bold uppercase tracking-wider">
+  {user?.role === "ADMIN" ? (
+    <>
+      <span className="text-red-500">Admin</span>{" "}
+      <span className="text-orange-400">Dashboard</span>
+    </>
+  ) : (
+    <>
+      <span className="text-blue-500">Client</span>{" "}
+      <span className="text-orange-400">Dashboard</span>
+    </>
+  )}
+</span>
+          <button
+      onClick={handleLogout}
+      className="flex items-center gap-2 text-slate-300 hover:text-orange-500 font-bold text-sm"
+    >
+      <LogOut className="w-4 h-4" />
+      Logout
+    </button>
         </div>
 
         <div className="bg-[#1e293b] border-t border-slate-800">

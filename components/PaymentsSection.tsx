@@ -2,6 +2,9 @@
 import React from 'react';
 import { CreditCard, Download, ExternalLink, Plus, Trash2 } from 'lucide-react';
 import { User, ClientData } from '../types';
+const PUBLIC_BASE = "https://localhost/dashboard-backend/";
+// OR localhost during dev:
+// const PUBLIC_BASE = "http://localhost/dashboard-backend";
 
 interface PaymentsSectionProps {
   user: User;
@@ -57,7 +60,19 @@ const PaymentsSection: React.FC<PaymentsSectionProps> = ({ user, clientData }) =
                   <td className="px-6 py-4"><span className="text-xs text-slate-500 font-bold">{inv.date}</span></td>
                   <td className="px-6 py-4"><span className="font-black text-slate-900 text-sm">${inv.amount.toFixed(0)}</span></td>
                   <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest ${inv.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>{inv.status}</span></td>
-                  <td className="px-6 py-4 text-right"><div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity"><button className="p-2 text-slate-400 hover:text-orange-500 transition-colors"><Download className="w-4 h-4" /></button></div></td>
+                  <td className="px-6 py-4 text-right"><div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+{inv.pdf_path && (
+  <a
+    href={`${PUBLIC_BASE}/${inv.pdf_path}`}
+    target="_blank"
+    rel="noreferrer"
+    className="p-2 text-slate-400 hover:text-orange-500 transition-colors"
+    title="View Invoice PDF"
+  >
+    <Download className="w-4 h-4" />
+  </a>
+)}
+                  </div></td>
                 </tr>
               ))}
             </tbody>
