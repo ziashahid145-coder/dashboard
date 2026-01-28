@@ -5,7 +5,7 @@ import { User, ClientData } from '../types';
 const VITE_PUBLIC_BASE = import.meta.env.VITE_PUBLIC_BASE;
 
 // OR localhost during dev:
-// const PUBLIC_BASE = "http://localhost/dashboard-backend";
+// const PUBLIC_BASE = "https://skypeakdesigns.com//dashboard-backend";
 
 interface PaymentsSectionProps {
   user: User;
